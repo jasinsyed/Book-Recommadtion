@@ -7,9 +7,7 @@ import time
 import difflib
 import urllib.parse
 
-# ==========================
-# PAGE CONFIG
-# ==========================
+
 st.set_page_config(
     page_title="AI Book Recommender",
     page_icon="📚",
@@ -17,9 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ==========================
-# CUSTOM CSS (ENHANCED UI & OVERLAY TRICK)
-# ==========================
+
 st.markdown("""
     <style>
     /* Main Page Header Styling */
@@ -165,9 +161,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ==========================
-# LOAD MODELS (CACHED)
-# ==========================
+
 @st.cache_resource
 def load_data():
     start = time.time()
@@ -185,54 +179,47 @@ def load_data():
 with st.spinner("Loading library databases..."):
     (books, tfidf_matrix, title_to_idx, collab_sim, collab_title_to_idx, book_titles_list, knn) = load_data()
 
-# ==========================
-# INTELLIGENT SEARCH ENGINE
-# ==========================
+
 def intelligent_search(query, valid_titles):
     """Finds the best matching book title using a multi-tiered approach."""
     query = query.strip().lower()
     if not query:
         return None, "empty"
         
-    # 1. Exact Match Check
     for title in valid_titles:
         if title.lower() == query:
             return title, "exact"
             
-    # 2. Starts With Check
+
     starts_with_matches = [t for t in valid_titles if t.lower().startswith(query)]
     if starts_with_matches:
         return min(starts_with_matches, key=len), "substring"
         
-    # 3. Contains Substring Check
+   
     contains_matches = [t for t in valid_titles if query in t.lower()]
     if contains_matches:
         return min(contains_matches, key=len), "substring"
-        
-    # 4. Fuzzy Spellcheck 
+
     closest_matches = difflib.get_close_matches(query, valid_titles, n=1, cutoff=0.45)
     if closest_matches:
         return closest_matches[0], "fuzzy"
         
     return None, "none"
 
-# ==========================
-# RECOMMENDATION FUNCTIONS
-# ==========================
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def content_based_recommend(book_title, n=10, min_year=None, max_year=None, author_filter=None):
     book_title = book_title.lower()
     if book_title not in title_to_idx: return pd.DataFrame()
     
     idx = title_to_idx[book_title]
-    
-    # Catch Duplicate Indices Bug
+
     if isinstance(idx, pd.Series):
         idx = idx.iloc[0]
     elif isinstance(idx, (list, np.ndarray)):
         idx = idx[0]
         
-    # The "Zero Vector" Bug Fix
+
     if tfidf_matrix[idx].sum() == 0:
         return pd.DataFrame()
         
@@ -241,16 +228,13 @@ def content_based_recommend(book_title, n=10, min_year=None, max_year=None, auth
     
     top_idx = indices[0][1:]
     sim_scores = 1 - distances[0][1:] 
-    
-    # INCLUDE ISBN for the Open Library API
+
     recs = books.iloc[top_idx][["ISBN", "Title", "Author", "Year", "Publisher", "Img-L"]].copy()
     recs["Similarity"] = sim_scores
-    
-    # Filter out fake 100% matches and completely unrelated books
+
     recs = recs[(recs["Similarity"] < 0.99) & (recs["Similarity"] > 0.01)]
     recs = recs[recs["Title"].str.lower() != book_title]
-    
-    # DIVERSITY FILTER: Only one book per author
+
     recs = recs.drop_duplicates(subset=["Author"], keep="first")
     
     if min_year: recs = recs[recs["Year"] >= min_year]
@@ -266,8 +250,7 @@ def collaborative_recommend(book_title, n=10, min_year=None, max_year=None, auth
     if book_title not in collab_title_to_idx: return pd.DataFrame()
     
     idx = collab_title_to_idx[book_title]
-    
-    # Catch Duplicate Indices Bug
+
     if isinstance(idx, pd.Series):
         idx = idx.iloc[0]
     elif isinstance(idx, (list, np.ndarray)):
@@ -275,8 +258,7 @@ def collaborative_recommend(book_title, n=10, min_year=None, max_year=None, auth
         
     sim_scores = collab_sim[idx].copy()
     sim_scores[idx] = 0
-    
-    # "Zero Vector" Bug for collaborative filtering
+
     if np.sum(sim_scores) == 0:
         return pd.DataFrame()
     
@@ -289,12 +271,10 @@ def collaborative_recommend(book_title, n=10, min_year=None, max_year=None, auth
     score_dict = dict(zip(rec_titles, sim_scores[top_idx]))
     recs["Score"] = recs["Title"].map(score_dict)
     recs = recs.sort_values("Score", ascending=False)
-    
-    # Filter out fake 100% matches and completely unrelated books
+
     recs = recs[(recs["Score"] < 0.99) & (recs["Score"] > 0.01)]
     recs = recs[recs["Title"].str.lower() != book_title]
     
-    # DIVERSITY FILTER: Only one book per author
     recs = recs.drop_duplicates(subset=["Author"], keep="first")
     
     if min_year: recs = recs[recs["Year"] >= min_year]
@@ -304,9 +284,6 @@ def collaborative_recommend(book_title, n=10, min_year=None, max_year=None, auth
     
     return recs.head(n)
 
-# ==========================
-# UI HELPER: RENDER BOOK GRID
-# ==========================
 def render_book_grid(df):
     """Reusable function to draw a grid of clickable books from a dataframe."""
     cols_per_row = 4
@@ -321,26 +298,26 @@ def render_book_grid(df):
                 img = row.get("Img-L", "")
                 isbn = row.get("ISBN", "")
                 
-                # Sanitize text to prevent HTML attribute breaking
+              
                 safe_title = str(title).replace('"', '&quot;')
                 safe_author = str(author).replace('"', '&quot;')
                 
-                # Create the Open Library API backup link
+               
                 open_lib_img = f"https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg?default=false"
                 
-                # Double Fallback Logic: Amazon Image -> Open Library API -> CSS Overlay Text
+             
                 if pd.isna(img) or str(img).strip() == "" or str(img).strip() == "nan":
-                    # If Amazon image is completely missing from DB, fallback to Open Library
+                   
                     img = open_lib_img
                 else:
                     img = str(img).replace("http://", "https://")
                 
-                # Using Goodreads search to avoid CAPTCHA blocks
+               
                 search_query = f"{title} {author}"
                 encoded_query = urllib.parse.quote_plus(search_query)
                 store_url = f"https://www.goodreads.com/search?q={encoded_query}"
                 
-                # Determine match score
+             
                 score_html = ""
                 for score_col in ["Similarity", "Score"]:
                     if score_col in row:
@@ -350,8 +327,7 @@ def render_book_grid(df):
                         break
                 
                 with col:
-                    # Formatted strictly left-aligned to prevent Streamlit interpreting as Markdown Code Block
-                    # USING PURE CSS OVERLAY TRICK FOR BROKEN IMAGES
+                    
                     html_card = f"""<a href="{store_url}" target="_blank" class="custom-card-link" title="Click to view on Goodreads">
 <div class="book-card">
 <div class="book-cover-container">
@@ -366,9 +342,7 @@ def render_book_grid(df):
 </a>"""
                     st.markdown(html_card, unsafe_allow_html=True)
 
-# ==========================
-# SIDEBAR
-# ==========================
+
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2232/2232688.png", width=60)
     st.header("⚙️ Settings")
@@ -389,9 +363,6 @@ with st.sidebar:
     st.divider()
     st.caption(f"📚 Total Library: **{len(books):,}** books")
 
-# ==========================
-# MAIN PAGE
-# ==========================
 st.markdown('<p class="main-header">AI Book Recommender</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-header">Discover your next favorite read powered by Machine Learning.</p>', unsafe_allow_html=True)
 
@@ -409,9 +380,7 @@ with search_col2:
     )
 st.write("") 
 
-# ==========================
-# LOGIC: DEFAULT VIEW VS SEARCH
-# ==========================
+
 if not search_query.strip():
     st.markdown("### 🔥 Trending Right Now")
     trending_books = books.sample(8, random_state=int(time.time()) % 100)
